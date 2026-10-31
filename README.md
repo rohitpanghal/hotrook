@@ -39,13 +39,7 @@ It needs a Rook with `script()` in its `process` library, and `rook` on your PAT
 rook get https://github.com/you/hotrook@v0.3.0
 ```
 
-**From a folder on this computer:** `rook get` needs a url with no spaces in it,
-so if yours has one, copy the package in. From your project's folder:
 
-```
-mkdir packages\hotrook
-xcopy /E "D:\Rook Projects\libs\AutoReload" packages\hotrook
-```
 
 ## Using it in a whole project
 
