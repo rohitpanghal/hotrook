@@ -47,6 +47,43 @@ mkdir packages\hotrook
 xcopy /E "D:\Rook Projects\libs\AutoReload" packages\hotrook
 ```
 
+## Using it in a whole project
+
+Call `watch()` once, at the top of your entry file. It covers that file's folder
+and everything below it, so no other file needs it, and files that aren't Rook
+count too:
+
+```
+webserver/
+├── app.ro          watch() goes here only
+├── routes/
+│   └── users.ro    watched
+├── views/
+│   └── home.html   watched
+├── public/
+│   └── site.css    watched
+└── .env            watched
+```
+
+If the entry file is in a subfolder, like `src/app.ro`, files outside `src` aren't
+covered. Name the project folder yourself:
+
+```rust
+import { watch_with, Options } from "hotrook"
+
+watch_with(Options { paths: ["."] })
+```
+
+Then run `rook src/app.ro` from the project's main folder, since `paths` start from
+where you run `rook`.
+
+If your program writes files of its own, like uploads or exports, add them to
+`ignore`, or each one will restart it:
+
+```rust
+watch_with(Options { ignore: ["uploads", "*.csv"] })
+```
+
 ## Settings
 
 `watch()` watches the program's folder and everything below it. For anything else,
