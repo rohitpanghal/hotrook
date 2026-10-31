@@ -1,0 +1,103 @@
+// Restarts a Rook program whenever one of its files changes.
+//
+//   import { watch } from "hotrook"
+//   import { serve } from "web"
+//
+//   watch()                       // the first line of the program
+//
+//   @get("/")
+//   fn home() -> str { return "Hello!" }
+//
+//   serve(8080)
+//
+// watch() turns `rook app.ro` into two processes. The one you started never
+// returns from watch(): it runs the program again as a child, watches the files,
+// and replaces the child when one changes. The child returns from watch()
+// straight away and carries on with the rest of the program.
+
+import { has, set } from "env"
+import { Process, args, exit_code, running, script, start, stop_within } from "process"
+import { ends_with } from "strings"
+import { sleep } from "time"
+import { DEFAULT_IGNORE, first_change, folder_of, snapshot } from "watcher.ro"
+
+// Set in every child, so it knows not to supervise. Setting it yourself turns
+// hotrook off: HOTROOK=off rook app.ro
+const MARK = "HOTROOK"
+
+const DEFAULT_INTERVAL = 250
+
+// Saving can take several writes, and "save all" several files.
+const SETTLE_MS = 200
+
+// How long a child gets to finish by itself when it's replaced.
+const STOP_MS = 1000
+
+// Settings for watch_with. Leave out what you don't need to change.
+pub type Options {
+  paths: [str]?     // files and folders to watch (default: the program's folder)
+  ignore: [str]?    // added to DEFAULT_IGNORE: names, paths, or endings like "*.csv"
+  interval: int?    // milliseconds between checks (default 250)
+}
+
+// Watches the program's folder and everything below it.
+pub fn watch() {
+  watch_with(Options { interval: DEFAULT_INTERVAL })
+}
+
+// Does nothing in a compiled program, which would only run the old build again,
+// or under `rook test`.
+pub fn watch_with(options: Options) {
+  const name = script()
+  if has(MARK) || name == null || ends_with(name, "_test.ro") { return }
+  const paths = options.paths ?? [folder_of(name)]
+  const patterns: [str] = []
+  for pattern in DEFAULT_IGNORE { push(patterns, pattern) }
+  const extra: [str] = []
+  for pattern in options.ignore ?? extra { push(patterns, pattern) }
+  const command = [name]
+  for word in args() { push(command, word) }
+  supervise(command, paths, patterns, options.interval ?? DEFAULT_INTERVAL)
+}
+
+fn launch(command: [str]) -> Process? {
+  const started = start("rook", command)
+  if !started.ok {
+    say("cannot start rook: " + started.error)
+    return null
+  }
+  return started.value
+}
+
+// Only returns if rook can't be started at all, which means it isn't on the PATH,
+// and then the program just runs here, unwatched.
+fn supervise(command: [str], paths: [str], patterns: [str], interval: int) {
+  set(MARK, "child")
+  var seen = snapshot(paths, patterns)
+  const first = launch(command)
+  if first == null { return }
+  var child: Process = first
+  say("watching " + paths as str)
+  var alive = true
+  while true {
+    sleep(interval)
+    if alive && !running(child) {
+      alive = false
+      say("program exited with code " + (exit_code(child) ?? -1) as str + ", waiting for a file to change")
+    }
+    const change = first_change(seen, snapshot(paths, patterns))
+    if change == null { continue }
+    sleep(SETTLE_MS)
+    seen = snapshot(paths, patterns)
+    say(change! + " changed, restarting")
+    if alive { stop_within(child, STOP_MS) }
+    const next = launch(command)
+    alive = next != null
+    if next != null { child = next }
+  }
+}
+
+fn say(message: str) {
+  print("[hotrook] " + message)
+  flush()
+}

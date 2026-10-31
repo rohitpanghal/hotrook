@@ -1,0 +1,72 @@
+// Finds out what changed in a set of files and folders, by comparing snapshots.
+// This part is plain Rook with no C code, so it can be tested by itself.
+
+import { is_dir, list, size } from "fs"
+import { ends_with, find_last, replace, slice, starts_with } from "strings"
+
+// Never watched. A running server writes to its database and logs, so watching
+// those would restart it forever.
+pub const DEFAULT_IGNORE: [str] = [
+  ".git", ".rook-get", "node_modules", "packages",
+  "*.db", "*.db-journal", "*.db-shm", "*.db-wal", "*.sqlite",
+  "*.dll", "*.exe", "*.log", "*.swp", "*.tmp", "*~",
+]
+
+// The folder a file is in: "web/app.ro" is "web", and "app.ro" is ".".
+pub fn folder_of(path: str) -> str {
+  const clean = replace(path, "\\", "/")
+  const slash = find_last(clean, "/")
+  if slash < 0 { return "." }
+  if slash == 0 { return "/" }
+  return slice(clean, 0, slash)
+}
+
+// A pattern is a file or folder name, a path from where the program was
+// started, or "*" and an ending, like "*.log".
+pub fn ignored(name: str, path: str, patterns: [str]) -> bool {
+  for pattern in patterns {
+    if starts_with(pattern, "*") {
+      if ends_with(name, slice(pattern, 1, len(pattern))) { return true }
+    } else if name == pattern || path == pattern {
+      return true
+    }
+  }
+  return false
+}
+
+// Every file below `paths`, each with text that changes when the file does.
+pub fn snapshot(paths: [str], patterns: [str]) -> {str: str} {
+  const files: {str: str} = {}
+  for path in paths { scan(replace(path, "\\", "/"), patterns, files) }
+  return files
+}
+
+fn scan(path: str, patterns: [str], files: {str: str}) {
+  if !is_dir(path) {
+    const bytes = size(path) ?? -1
+    if bytes >= 0 { files[path] = __fs_mtime(path) as str + ":" + bytes as str }
+    return
+  }
+  const none: [str] = []
+  for name in list(path) ?? none {  // a folder can go while it's being read
+    const child = join_path(path, name)
+    if !ignored(name, child, patterns) { scan(child, patterns, files) }
+  }
+}
+
+fn join_path(folder: str, name: str) -> str {
+  if folder == "." { return name }
+  if folder == "/" { return "/" + name }
+  return folder + "/" + name
+}
+
+// A file that was added, edited or removed between two snapshots, or null.
+pub fn first_change(before: {str: str}, after: {str: str}) -> str? {
+  for path, stamp in after {
+    if !has(before, path) || before[path] != stamp { return path }
+  }
+  for path in before {
+    if !has(after, path) { return path }
+  }
+  return null
+}

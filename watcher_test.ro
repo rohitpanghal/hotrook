@@ -1,0 +1,88 @@
+import { equal, expect } from "test"
+import { mkdir, remove, write } from "fs"
+import { sleep } from "time"
+import { DEFAULT_IGNORE, first_change, folder_of, ignored, snapshot } from "watcher.ro"
+
+const DIR = "watcher_test_tmp"
+
+fn clean() {
+  remove(DIR + "/sub/page.html") ?? false
+  remove(DIR + "/sub") ?? false
+  remove(DIR + "/app.ro") ?? false
+  remove(DIR + "/data.db") ?? false
+  remove(DIR + "/packages/x.ro") ?? false
+  remove(DIR + "/packages") ?? false
+  remove(DIR) ?? false
+}
+
+fn setup() {
+  clean()
+  mkdir(DIR + "/sub")!
+  mkdir(DIR + "/packages")!
+  write(DIR + "/app.ro", "one")!
+  write(DIR + "/sub/page.html", "one")!
+}
+
+@test("folder_of finds the folder of a script")
+fn folders() {
+  equal(folder_of("app.ro"), ".")
+  equal(folder_of("web/app.ro"), "web")
+  equal(folder_of("web\\api\\app.ro"), "web/api")
+  equal(folder_of("/app.ro"), "/")
+}
+
+@test("ignored matches names, paths and endings")
+fn patterns() {
+  expect(ignored("a.log", "x/a.log", ["*.log"]))
+  expect(ignored(".git", "x/.git", [".git"]))
+  expect(ignored("uploads", "public/uploads", ["public/uploads"]))
+  expect(!ignored("a.log.txt", "a.log.txt", ["*.log"]))
+  expect(!ignored("catalog", "catalog", ["*.log", "log"]))
+}
+
+@test("defaults skip what a running server writes")
+fn defaults() {
+  expect(ignored("app.db", "app.db", DEFAULT_IGNORE))
+  expect(ignored("app.db-wal", "app.db-wal", DEFAULT_IGNORE))
+  expect(ignored("server.log", "server.log", DEFAULT_IGNORE))
+  expect(!ignored("app.ro", "app.ro", DEFAULT_IGNORE))
+  expect(!ignored(".env", ".env", DEFAULT_IGNORE))
+}
+
+@test("first_change sees added, edited and removed files")
+fn changes() {
+  const before: {str: str} = {"a": "1", "b": "1"}
+  equal(first_change(before, {"a": "1", "b": "1"}) ?? "none", "none")
+  equal(first_change(before, {"a": "1", "b": "2"}) ?? "none", "b")
+  equal(first_change(before, {"a": "1", "b": "1", "c": "1"}) ?? "none", "c")
+  equal(first_change(before, {"a": "1"}) ?? "none", "b")
+}
+
+@test("snapshot walks folders and leaves out ignored files")
+fn walks() {
+  setup()
+  write(DIR + "/data.db", "x")!
+  write(DIR + "/packages/x.ro", "x")!
+  const files = snapshot([DIR], DEFAULT_IGNORE)
+  equal(len(files), 2)
+  expect(has(files, DIR + "/app.ro"))
+  expect(has(files, DIR + "/sub/page.html"))
+  clean()
+}
+
+@test("snapshot sees a real edit, even of the same length")
+fn edits() {
+  setup()
+  const before = snapshot([DIR], DEFAULT_IGNORE)
+  sleep(20)
+  write(DIR + "/sub/page.html", "two")!
+  equal(first_change(before, snapshot([DIR], DEFAULT_IGNORE)) ?? "none", DIR + "/sub/page.html")
+  clean()
+}
+
+@test("snapshot takes single files, and skips missing paths")
+fn single() {
+  setup()
+  equal(len(snapshot([DIR + "/app.ro", DIR + "/nope"], DEFAULT_IGNORE)), 1)
+  clean()
+}

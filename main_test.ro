@@ -1,0 +1,19 @@
+import { equal, expect } from "test"
+import { Options, watch, watch_with } from "main.ro"
+
+// Restarting needs a real server, but importing this file makes rook test compile
+// main.ro. If the first test hangs, watch() has started supervising the test run.
+
+@test("watch leaves rook test alone")
+fn under_test() {
+  watch()
+  watch_with(Options { interval: 100 })
+  expect(true)
+}
+
+@test("settings can be left out")
+fn optional_settings() {
+  const options = Options { interval: 100 }
+  equal(options.interval ?? 0, 100)
+  equal(len(options.ignore ?? ["x"]), 1)
+}
